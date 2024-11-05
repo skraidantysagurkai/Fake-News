@@ -11,5 +11,7 @@ pip install -r requirements.txt
 
 To export new packages to .txt file:
 ```commandline
-pip freeze > requirements. txt
+pip freeze > requirements.txt
 ```
+
+Please don't push data to the repository, instead create a jupyter notebook to download the data.
