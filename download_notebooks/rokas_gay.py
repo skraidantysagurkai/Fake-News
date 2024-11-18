@@ -114,8 +114,7 @@ def spacy_proceses(df: pl.DataFrame) -> pl.DataFrame:
         
         text_punct_counts.append(punct_count)
         text_stopword_counts.append(stopword_count)
-        text_sentiments.append(doc._.blob.polarity)
-        text_subjectivities.append(doc._.blob.subjectivity)
+
         
     for doc in nlp.pipe(titles, n_process=4):
         stopword_count = sum(token.is_stop for token in doc)
@@ -123,11 +122,19 @@ def spacy_proceses(df: pl.DataFrame) -> pl.DataFrame:
         
         title_punct_counts.append(punct_count)
         title_stopword_counts.append(stopword_count)
-        title_sentiments.append(doc._.blob.polarity)
-        title_subjectivities.append(doc._.blob.subjectivity)
 
+
+    # calculate sentiment and subjectivity for each sentence one by one
+    # it is not possible to serialize TextBlob object
+    for text in texts:
+        text_sentiments.append(nlp(text)._.blob.polarity)
+        text_subjectivities.append(nlp(text)._.blob.subjectivity)
     
-    
+    for title in titles:
+        title_sentiments.append(nlp(title)._.blob.polarity)
+        title_subjectivities.append(nlp(title)._.blob.subjectivity)
+        
+        
     df = df.with_columns(
         text_punct_count=text_punct_counts,
         text_stopword_count=text_stopword_counts,
@@ -145,6 +152,7 @@ if __name__ == "__main__":
 
     # apply  non spacy processes
     # df = start(df)
+    # apply spacy processes
     df = spacy_proceses(df)
     
     df = df.with_columns(
