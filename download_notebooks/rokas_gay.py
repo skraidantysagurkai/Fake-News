@@ -8,6 +8,7 @@ import re
 import multiprocessing as mp
 import unicodedata
 import numpy as np
+from spacytextblob.spacytextblob import SpacyTextBlob
 
 def load() -> pl.DataFrame:
     # Download latest version
@@ -39,7 +40,7 @@ def process_text(text: str) -> str:
     # fix contractions: don't -> do not
     text = ' '.join(contractions.fix(word) for word in text.split())
     # remove urls
-    text = re.sub(r'https?:\S*', '', text)
+    text = re.sub(r"http[s]?://\S+|www\.\S+", '', text)
     # replace all whitespaces, including unicode spaces and tabs with regular space
     pattern = '[' + re.escape(''.join(unwanted_symbols)) + ']'  # Escapes special regex characters
     text = re.sub(pattern, '', text)    
@@ -56,12 +57,20 @@ def get_hastag_count(text: str) -> int:
 def get_tag_count(text: str) -> int:
     return len(re.findall(r"@\w+", text))
 
+def extract_urls(text):
+    return len(re.findall(r"http[s]?://\S+|www\.\S+", text))
+
 def process_chunks(chunk: pl.DataFrame) -> pl.DataFrame:
     chunk = chunk.with_columns(
-        pl.col('text').map_elements(lambda x: get_len_text(x), return_dtype=pl.Int32).alias("word_count"),
-        pl.col('text').map_elements(lambda x: get_hastag_count(x), return_dtype=pl.Int32).alias("hastag_count"),
-        pl.col('text').map_elements(lambda x: get_tag_count(x), return_dtype=pl.Int32).alias("tag_count"),
-        pl.col('text').map_elements(lambda x: process_text(x), return_dtype=pl.String).alias("processed_text")
+        pl.col('text').map_elements(lambda x: get_len_text(x), return_dtype=pl.Int32).alias("text_word_count"),
+        pl.col('text').map_elements(lambda x: get_hastag_count(x), return_dtype=pl.Int32).alias("text_hastag_count"),
+        pl.col('text').map_elements(lambda x: get_tag_count(x), return_dtype=pl.Int32).alias("text_mention_count"),
+        pl.col('text').map_elements(lambda x: extract_urls(x), return_dtype=pl.Int32).alias("text_url_count"),
+        pl.col('text').map_elements(lambda x: process_text(x), return_dtype=pl.String).alias("processed_text"),
+        pl.col('title').map_elements(lambda x: get_len_text(x), return_dtype=pl.Int32).alias("title_word_count"),
+        pl.col('title').map_elements(lambda x: get_hastag_count(x), return_dtype=pl.Int32).alias("title_hastag_count"),
+        pl.col('title').map_elements(lambda x: get_tag_count(x), return_dtype=pl.Int32).alias("title_mention_count"),
+        pl.col('title').map_elements(lambda x: extract_urls(x), return_dtype=pl.Int32).alias("title_url_count")
     )
 
     return chunk
@@ -84,36 +93,52 @@ def start(df: pl.DataFrame) -> pl.DataFrame:
 
 def spacy_proceses(df: pl.DataFrame) -> pl.DataFrame:
     nlp = spacy.load("en_core_web_sm")
+    nlp.add_pipe("spacytextblob")
     
-    stop_word_counts = []
-    punct_counts = []
-    cleared_texts = []
+    texts = list(df.get_column("text"))
+    titles = list(df.get_column("title"))
     
-    for doc in nlp.pipe(df.get_column("text"), n_process=6):
-        stopwords = 0
-        puncts = 0
-        for token in doc:
-            if token.is_punct:
-                puncts += 1
-            if token.is_stop:
-                stopwords += 1
-            
-        stop_word_counts.append(stopwords)
-        punct_counts.append(puncts)
+    text_stopword_counts = []
+    text_punct_counts = []
+    text_sentiments = []
+    text_subjectivities = []
+    
+    title_stopword_counts = []
+    title_punct_counts = []
+    title_sentiments = []
+    title_subjectivities = []
+    
+    for doc in nlp.pipe(texts, n_process=4):
+        stopword_count = sum(token.is_stop for token in doc)
+        punct_count = sum(token.is_punct for token in doc)
         
-    for doc in nlp.pip(df.get_column("processed_text"), n_process=6):
-        words = []
-        for token in doc:
-            if not token.is_stop and not token.is_punkt:
-                words.append(token.text)
-        cleared_texts.append(' '.join(words))
+        text_punct_counts.append(punct_count)
+        text_stopword_counts.append(stopword_count)
+        text_sentiments.append(doc._.blob.polarity)
+        text_subjectivities.append(doc._.blob.subjectivity)
         
-    df.with_columns(
-        stop_count=stop_word_counts,
-        punct_count=punct_counts,
-        processed_text=cleared_texts
+    for doc in nlp.pipe(titles, n_process=4):
+        stopword_count = sum(token.is_stop for token in doc)
+        punct_count = sum(token.is_punct for token in doc)
+        
+        title_punct_counts.append(punct_count)
+        title_stopword_counts.append(stopword_count)
+        title_sentiments.append(doc._.blob.polarity)
+        title_subjectivities.append(doc._.blob.subjectivity)
+
+    
+    
+    df = df.with_columns(
+        text_punct_count=text_punct_counts,
+        text_stopword_count=text_stopword_counts,
+        text_sentiment=text_sentiments,
+        text_subjectivity=text_subjectivities,
+        title_punct_count=title_punct_counts,
+        title_stopword_count=title_stopword_counts,
+        title_sentiment=title_sentiments,
+        title_subjectivity=title_subjectivities
     )
-    
+    return df
 
 if __name__ == "__main__":
     df = load()
@@ -121,6 +146,12 @@ if __name__ == "__main__":
     # apply  non spacy processes
     # df = start(df)
     df = spacy_proceses(df)
-    print(df)
+    
+    df = df.with_columns(
+        (pl.col('text_word_count')/pl.col('text_stopword_count')).alias('text_word_stopword_ratio'),
+        (pl.col('title_word_count')/pl.col('title_stopword_count')).alias('title_word_stopword_ratio'),
+    )
+    
+    df.write_csv("final.csv")
     
     
