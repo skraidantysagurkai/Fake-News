@@ -7,6 +7,7 @@ Uni project to create a classifier to detect fake news
 conda create -n fake-news python=3.12
 conda activate fake-news
 pip install -r requirements.txt
+python -m spacy download en
 ```
 
 To export new packages to .txt file:
