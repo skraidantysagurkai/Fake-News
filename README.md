@@ -16,3 +16,4 @@ pip freeze > requirements.txt
 ```
 
 Please don't push data to the repository, instead create a jupyter notebook to download the data.
+For Bert usage please install compatible torch version from https://pytorch.org

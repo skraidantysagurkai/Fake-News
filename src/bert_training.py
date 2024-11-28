@@ -32,23 +32,15 @@ labels = df.label.tolist()
 data = {"text": text, "label": labels}
 dataset = Dataset.from_dict(data)
 
-# Load DistilBERT tokenizer
 tokenizer = DistilBertTokenizerFast.from_pretrained("distilbert-base-uncased")
 
-
-# Tokenize the data
 def tokenize_function(examples):
     return tokenizer(examples["text"], padding="max_length", truncation=True)
 
-
-# Apply the tokenizer to the dataset
 tokenized_datasets = dataset.map(tokenize_function, batched=True)
-
-# Split dataset into train and validation sets (80% train, 20% validation) using Hugging Face's method
 train_dataset = tokenized_datasets.train_test_split(test_size=0.2, seed=42)['train']
 val_dataset = tokenized_datasets.train_test_split(test_size=0.2, seed=42)['test']
 
-# Load DistilBERT model for sequence classification
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2).to(device)
 
@@ -70,7 +62,6 @@ training_args = TrainingArguments(
     report_to="tensorboard"  # report to tensorboard
 )
 
-# Initialize the Trainer
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -81,8 +72,4 @@ trainer = Trainer(
         "accuracy": (np.argmax(p.predictions, axis=1) == p.label_ids).mean()
     }
 )
-
-try:
-    train_results = trainer.train()
-except Exception as e:
-    print(e)
+trainer.train()

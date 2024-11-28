@@ -1,10 +1,13 @@
-import kagglehub
-import pandas as pd
+import multiprocessing as mp
 import os
 import re
-import multiprocessing as mp
-from text_processing_utils import get_metrics, process_text
-import shutil 
+import shutil
+
+import kagglehub
+import pandas as pd
+
+from src.text_processing_utils import get_metrics, process_text
+
 
 def load() -> tuple[pd.DataFrame, str]:
     # Download latest version
@@ -23,19 +26,23 @@ def load() -> tuple[pd.DataFrame, str]:
 
     return joined_df, path
 
+
 # processing function to count metrics we are interested in
 def process_chunks(chunk: pd.DataFrame) -> pd.DataFrame:
     chunk['text_word_count'] = chunk['text'].apply(lambda text: len(text.split())).astype('int16')
     chunk['text_hastag_count'] = chunk['text'].apply(lambda text: len(re.findall(r"#\w+", text))).astype('int16')
     chunk['text_mention_count'] = chunk['text'].apply(lambda text: len(re.findall(r"@\w+", text))).astype('int16')
-    chunk['text_url_count'] = chunk['text'].apply(lambda text: len(re.findall(r"http[s]?://\S+|www\.\S+", text))).astype('int16')
+    chunk['text_url_count'] = chunk['text'].apply(
+        lambda text: len(re.findall(r"http[s]?://\S+|www\.\S+", text))).astype('int16')
     chunk['processed_text'] = chunk['text'].apply(lambda x: process_text(x)).astype(str)
     chunk['title_word_count'] = chunk['title'].apply(lambda title: len(title.split())).astype('int16')
     chunk['title_hastag_count'] = chunk['title'].apply(lambda title: len(re.findall(r"#\w+", title))).astype('int16')
     chunk['title_mention_count'] = chunk['title'].apply(lambda title: len(re.findall(r"@\w+", title))).astype('int16')
-    chunk['title_url_count'] = chunk['title'].apply(lambda title: len(re.findall(r"http[s]?://\S+|www\.\S+", title))).astype('int16')
+    chunk['title_url_count'] = chunk['title'].apply(
+        lambda title: len(re.findall(r"http[s]?://\S+|www\.\S+", title))).astype('int16')
 
     return chunk
+
 
 # non spacy text processing using multiprocessing library
 def process_1(df: pd.DataFrame) -> pd.DataFrame:
@@ -43,21 +50,22 @@ def process_1(df: pd.DataFrame) -> pd.DataFrame:
     chunk_size = len(df) // num_partitions
     chunks = []
     for i in range(num_partitions):
-        start = i*chunk_size
-        end = (i+1)*chunk_size
+        start = i * chunk_size
+        end = (i + 1) * chunk_size
         chunks.append(df.iloc[start: end])
-    with mp.Pool(processes=num_partitions,) as pool:
+    with mp.Pool(processes=num_partitions, ) as pool:
         result_chunks = pool.map(process_chunks, chunks)
     final_df = pd.concat(result_chunks)
 
     return final_df
+
 
 def process_2(df: pd.DataFrame):
     interval = df.shape[0] // 10
     dfs = []
     # split original dataframe into 10 parts
     for i in range(10):
-        dfs.append(df.iloc[i*interval:(i+1)*interval])
+        dfs.append(df.iloc[i * interval:(i + 1) * interval])
     processed_dfs = []
 
     # calculate metrics for each part
@@ -65,7 +73,7 @@ def process_2(df: pd.DataFrame):
         metrics_df = get_metrics(df['title'].tolist(), df['text'].tolist())
         df = pd.concat([df, metrics_df], axis=1)
         processed_dfs.append(df)
-    
+
     # join the parts into final dataframe
     final_df = pd.concat(processed_dfs, axis=0)
 
@@ -82,8 +90,7 @@ if __name__ == "__main__":
     df = process_2(df)
     # save dataframe
     df.to_csv("processed_data.csv")
-    
+
     # remove downloaded dataframes\
     remove_path = os.path.abspath(os.path.join(path, "..", "..", ".."))
     shutil.rmtree(remove_path)
-    
